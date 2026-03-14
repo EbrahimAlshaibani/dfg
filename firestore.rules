@@ -1,0 +1,135 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: userId
+    // Fields:
+    //   - uid: string (required) - User's ID
+    //   - email: string (required) - User's email address
+    //   - displayName: string (optional) - User's display name
+    //   - photoURL: string (optional) - User's photo URL
+    //   - role: string (required) - User's role ('admin', 'user')
+    //   - createdAt: timestamp (optional) - Creation timestamp
+    //
+    // Collection: meetings
+    // Document ID: meetingId
+    // Fields:
+    //   - title: string (required)
+    //   - description: string (optional)
+    //   - date: string (required) - YYYY-MM-DD
+    //   - startTime: string (required) - HH:MM
+    //   - endTime: string (required) - HH:MM
+    //   - hostId: string (required) - User ID of the host
+    //   - attendees: list (optional) - List of user IDs
+    //   - status: string (required) - 'scheduled', 'completed', 'cancelled'
+    //   - agenda: string (optional)
+    //   - notes: string (optional)
+    //   - createdAt: timestamp (optional)
+    //   - updatedAt: timestamp (optional)
+    //
+    // Collection: actionItems
+    // Document ID: actionItemId
+    // Fields:
+    //   - meetingId: string (required)
+    //   - description: string (required)
+    //   - assigneeId: string (required)
+    //   - status: string (required) - 'pending', 'completed'
+    //   - dueDate: string (optional) - YYYY-MM-DD
+    //   - createdAt: timestamp (optional)
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isAuthenticated() &&
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (request.auth.token.email == "ebrahimhasan77784@gmail.com" && request.auth.token.email_verified == true));
+    }
+
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function hasOnlyAllowedFields(allowedFields) {
+      return request.resource.data.keys().hasOnly(allowedFields);
+    }
+
+    function isValidUser(data) {
+      return hasOnlyAllowedFields(['uid', 'email', 'displayName', 'photoURL', 'role', 'createdAt']) &&
+             data.uid is string && data.uid.size() > 0 && data.uid.size() < 100 &&
+             data.email is string && isValidEmail(data.email) && data.email.size() < 100 &&
+             (!('displayName' in data) || (data.displayName is string && data.displayName.size() < 100)) &&
+             (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() < 500)) &&
+             data.role in ['admin', 'user'] &&
+             (!('createdAt' in data) || data.createdAt is timestamp);
+    }
+
+    function isValidMeeting(data) {
+      return hasOnlyAllowedFields(['title', 'description', 'date', 'startTime', 'endTime', 'hostId', 'attendees', 'status', 'agenda', 'notes', 'createdAt', 'updatedAt']) &&
+             data.title is string && data.title.size() > 0 && data.title.size() < 200 &&
+             (!('description' in data) || (data.description is string && data.description.size() < 2000)) &&
+             data.date is string && data.date.matches("^\\d{4}-\\d{2}-\\d{2}$") &&
+             data.startTime is string && data.startTime.matches("^\\d{2}:\\d{2}$") &&
+             data.endTime is string && data.endTime.matches("^\\d{2}:\\d{2}$") &&
+             data.hostId is string && data.hostId.size() > 0 && data.hostId.size() < 100 &&
+             (!('attendees' in data) || (data.attendees is list && data.attendees.size() <= 100)) &&
+             data.status in ['scheduled', 'completed', 'cancelled'] &&
+             (!('agenda' in data) || (data.agenda is string && data.agenda.size() < 5000)) &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() < 10000)) &&
+             (!('createdAt' in data) || data.createdAt is timestamp) &&
+             (!('updatedAt' in data) || data.updatedAt is timestamp);
+    }
+
+    function isValidActionItem(data) {
+      return hasOnlyAllowedFields(['meetingId', 'description', 'assigneeId', 'status', 'dueDate', 'createdAt']) &&
+             data.meetingId is string && data.meetingId.size() > 0 && data.meetingId.size() < 100 &&
+             data.description is string && data.description.size() > 0 && data.description.size() < 1000 &&
+             data.assigneeId is string && data.assigneeId.size() > 0 && data.assigneeId.size() < 100 &&
+             data.status in ['pending', 'completed'] &&
+             (!('dueDate' in data) || (data.dueDate is string && data.dueDate.matches("^\\d{4}-\\d{2}-\\d{2}$"))) &&
+             (!('createdAt' in data) || data.createdAt is timestamp);
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated(); // Allow all authenticated users to read profiles for meeting attendees
+      allow create: if isAuthenticated() && isOwner(userId) && isValidUser(request.resource.data) &&
+                    (request.resource.data.role == 'user' || isAdmin());
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) &&
+                    ((isOwner(userId) && request.resource.data.role == resource.data.role) || isAdmin()) &&
+                    request.resource.data.uid == resource.data.uid;
+      allow delete: if isAdmin();
+    }
+
+    match /meetings/{meetingId} {
+      allow read: if isAuthenticated() && (resource.data.hostId == request.auth.uid || request.auth.uid in resource.data.attendees || isAdmin());
+      allow create: if isAuthenticated() && isValidMeeting(request.resource.data) &&
+                    request.resource.data.hostId == request.auth.uid;
+      allow update: if isAuthenticated() && isValidMeeting(request.resource.data) &&
+                    (resource.data.hostId == request.auth.uid || isAdmin() ||
+                     (request.auth.uid in resource.data.attendees && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['notes', 'updatedAt'])));
+      allow delete: if isAuthenticated() && (resource.data.hostId == request.auth.uid || isAdmin());
+    }
+
+    match /actionItems/{actionItemId} {
+      allow read: if isAuthenticated(); // Any authenticated user can read action items (could be scoped to meeting attendees, but keeping simple for now)
+      allow create: if isAuthenticated() && isValidActionItem(request.resource.data);
+      allow update: if isAuthenticated() && isValidActionItem(request.resource.data) &&
+                    (resource.data.assigneeId == request.auth.uid || isAdmin() ||
+                     get(/databases/$(database)/documents/meetings/$(resource.data.meetingId)).data.hostId == request.auth.uid);
+      allow delete: if isAuthenticated() && (resource.data.assigneeId == request.auth.uid || isAdmin() ||
+                     get(/databases/$(database)/documents/meetings/$(resource.data.meetingId)).data.hostId == request.auth.uid);
+    }
+  }
+}

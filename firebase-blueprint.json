@@ -1,0 +1,69 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "A user of the meeting management system.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "The unique identifier of the user." },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "photoURL": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "user"] },
+        "createdAt": { "type": "timestamp" }
+      },
+      "required": ["uid", "email", "role"]
+    },
+    "Meeting": {
+      "title": "Meeting",
+      "description": "A scheduled meeting.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "startTime": { "type": "string", "format": "time" },
+        "endTime": { "type": "string", "format": "time" },
+        "hostId": { "type": "string" },
+        "attendees": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "status": { "type": "string", "enum": ["scheduled", "completed", "cancelled"] },
+        "agenda": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "timestamp" },
+        "updatedAt": { "type": "timestamp" }
+      },
+      "required": ["title", "date", "startTime", "endTime", "hostId", "status"]
+    },
+    "ActionItem": {
+      "title": "Action Item",
+      "description": "A task assigned during a meeting.",
+      "type": "object",
+      "properties": {
+        "meetingId": { "type": "string" },
+        "description": { "type": "string" },
+        "assigneeId": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "completed"] },
+        "dueDate": { "type": "string", "format": "date" },
+        "createdAt": { "type": "timestamp" }
+      },
+      "required": ["meetingId", "description", "assigneeId", "status"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": { "$ref": "#/entities/User" },
+      "description": "Stores user profiles."
+    },
+    "meetings/{meetingId}": {
+      "schema": { "$ref": "#/entities/Meeting" },
+      "description": "Stores all meetings."
+    },
+    "actionItems/{actionItemId}": {
+      "schema": { "$ref": "#/entities/ActionItem" },
+      "description": "Stores all action items."
+    }
+  }
+}
